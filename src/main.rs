@@ -1,52 +1,61 @@
 use fnv::FnvHashMap;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Result as IoResult};
 use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::borrow::Cow;
 use walkdir::{DirEntry, WalkDir};
 
 lazy_static! {
     static ref ICONS: FnvHashMap<String, String> = map_mime_icon_file("/usr/share/mime/icons");
-    static ref GENERIC: FnvHashMap<String, String> = map_mime_icon_file("/usr/share/mime/generic-icons");
+    static ref GENERIC: FnvHashMap<String, String> =
+        map_mime_icon_file("/usr/share/mime/generic-icons");
 }
 
 fn map_mime_icon_file(file: &str) -> FnvHashMap<String, String> {
-        let file = File::open(file).expect("mime icons");
-        let buf = BufReader::new(file);
+    let file = File::open(file).expect("mime icons");
+    let buf = BufReader::new(file);
 
-        let split_line = |line: IoResult<String>| {
-            let line = line.expect("parse line");
-            let mut split = line.splitn(2, ':').map(str::to_string);
-            (split.next().expect("mime type"), split.next().expect("icon name"))
-        };
+    let split_line = |line: IoResult<String>| {
+        let line = line.expect("parse line");
+        let mut split = line.splitn(2, ':').map(str::to_string);
+        (
+            split.next().expect("mime type"),
+            split.next().expect("icon name"),
+        )
+    };
 
-        buf.lines().map(split_line).collect::<FnvHashMap<String, String>>()
+    buf.lines()
+        .map(split_line)
+        .collect::<FnvHashMap<String, String>>()
 }
 
 fn icon_from_mimetype(mime: &str) -> Cow<str> {
-    ICONS.get(mime).or_else(|| GENERIC.get(mime)).map(Cow::from)
+    ICONS
+        .get(mime)
+        .or_else(|| GENERIC.get(mime))
+        .map(Cow::from)
         .or_else(|| Some(Cow::from(format!("{}-x-generic", mime.split('/').nth(0)?))))
         .unwrap_or_else(|| Cow::from("unknown"))
 }
 
 fn generate_list<P: AsRef<Path>>(cursor: P) -> String {
-    let dirs_first = |a: &DirEntry, b: &DirEntry| {
-        match (a.file_type().is_dir(), b.file_type().is_dir()) {
+    let dirs_first =
+        |a: &DirEntry, b: &DirEntry| match (a.file_type().is_dir(), b.file_type().is_dir()) {
             (true, false) => Ordering::Less,
             (false, true) => Ordering::Greater,
-            (_,_) => a.file_name().cmp(b.file_name())
-        }
-    };
+            (_, _) => a.file_name().cmp(b.file_name()),
+        };
 
     let dotfiles = |entry: &DirEntry| {
-        entry.file_name()
+        entry
+            .file_name()
             .to_str()
-            .map(|s| ! s.starts_with('.'))
+            .map(|s| !s.starts_with('.'))
             .unwrap_or(true)
     };
 
@@ -113,7 +122,10 @@ fn main() -> IoResult<()> {
 
             return Ok(());
         } else if cursor.is_dir() {
-            std::fs::write(&lastdir_path, &cursor.canonicalize()?.as_os_str().as_bytes())?;
+            std::fs::write(
+                &lastdir_path,
+                &cursor.canonicalize()?.as_os_str().as_bytes(),
+            )?;
             println!("\x00prompt\x1fFiles\n{}", generate_list(&cursor));
         } else {
             return Ok(());
